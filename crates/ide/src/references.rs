@@ -101,21 +101,29 @@ fn find_def(
     syntax: &SyntaxNode,
     position: FilePosition,
 ) -> Option<Definition> {
-    let def = match sema.find_node_at_offset_with_descend(syntax, position.offset)? {
-        ast::NameLike::NameRef(name_ref) => {
-            NameRefClass::classify(sema, &name_ref)?.referenced(sema.db)
-        }
-        ast::NameLike::Name(name) => {
-            NameClass::classify(sema, &name)?.referenced_or_defined(sema.db)
-        }
-        ast::NameLike::Lifetime(lifetime) => NameRefClass::classify_lifetime(sema, &lifetime)
-            .map(|class| class.referenced(sema.db))
-            .or_else(|| {
-                NameClass::classify_lifetime(sema, &lifetime)
-                    .map(|class| class.referenced_or_defined(sema.db))
-            })?,
-    };
-    Some(def)
+    if let Some(name) = sema.find_node_at_offset_with_descend::<ast::Name>(&syntax, position.offset)
+    {
+        let class = NameClass::classify(sema, &name)?;
+        Some(class.referenced_or_defined(sema.db))
+    } else if let Some(lifetime) =
+        sema.find_node_at_offset_with_descend::<ast::Lifetime>(&syntax, position.offset)
+    {
+        let def = if let Some(def) =
+            NameRefClass::classify_lifetime(sema, &lifetime).map(|class| class.referenced(sema.db))
+        {
+            def
+        } else {
+            NameClass::classify_lifetime(sema, &lifetime)?.referenced_or_defined(sema.db)
+        };
+        Some(def)
+    } else if let Some(name_ref) =
+        sema.find_node_at_offset_with_descend::<ast::NameRef>(&syntax, position.offset)
+    {
+        let class = NameRefClass::classify(sema, &name_ref)?;
+        Some(class.referenced(sema.db))
+    } else {
+        None
+    }
 }
 
 fn decl_access(def: &Definition, syntax: &SyntaxNode, range: TextRange) -> Option<ReferenceAccess> {
